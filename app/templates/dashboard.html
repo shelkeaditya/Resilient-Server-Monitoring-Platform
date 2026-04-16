@@ -1,0 +1,423 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Server Monitor</title>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      font-family: 'Courier New', monospace;
+      background: #0b1220;
+      color: #e5e7eb;
+      min-height: 100vh;
+    }
+
+    .dash {
+      display: flex;
+      flex-direction: column;
+      min-height: 100vh;
+      padding: 18px;
+      gap: 14px;
+      max-width: 1600px;
+      margin: 0 auto;
+    }
+
+    /* ── TOPBAR ── */
+    .topbar { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+    .topbar h1 { font-size: 18px; font-weight: 700; letter-spacing: 0.08em; color: #f1f5f9; }
+
+    .badge {
+      display: inline-flex; align-items: center; gap: 6px;
+      padding: 4px 12px; border-radius: 5px; font-size: 11px; font-weight: 700; letter-spacing: 0.06em;
+    }
+    .badge-ok   { background: #14532d; color: #86efac; }
+    .badge-warn { background: #78350f; color: #fcd34d; }
+    .badge-crit { background: #7f1d1d; color: #fca5a5; }
+
+    .dot { width: 7px; height: 7px; border-radius: 50%; display: inline-block; }
+    .dot-ok   { background: #22c55e; }
+    .dot-warn { background: #f59e0b; }
+    .dot-crit { background: #ef4444; animation: blink 1s infinite; }
+    @keyframes blink { 0%,100%{opacity:1} 50%{opacity:0.2} }
+
+    .last-update { font-size: 11px; color: #4b5563; margin-left: auto; font-family: monospace; }
+
+    /* ── METRIC CARDS ── */
+    .metrics { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; }
+    .mcard {
+      background: #111827; border-radius: 6px; padding: 14px 16px;
+      border: 1px solid #1e293b;
+    }
+    .mcard .label { font-size: 10px; color: #6b7280; text-transform: uppercase; letter-spacing: 0.1em; margin-bottom: 4px; }
+    .mcard .val   { font-size: 24px; font-weight: 700; color: #f1f5f9; font-family: monospace; }
+    .mcard .sub   { font-size: 11px; color: #4b5563; margin-top: 2px; }
+    .mcard .bar   { margin-top: 10px; height: 3px; background: #1e293b; border-radius: 2px; overflow: hidden; }
+    .mcard .bar-fill { height: 100%; border-radius: 2px; transition: width 0.6s ease, background 0.4s ease; }
+
+    /* ── CHARTS GRID ── */
+    .charts { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; }
+    .chart-card {
+      background: #111827; border-radius: 6px; padding: 14px 16px;
+      border: 1px solid #1e293b;
+    }
+    .chart-card h3 { font-size: 10px; color: #6b7280; margin-bottom: 10px; font-weight: 600; letter-spacing: 0.08em; text-transform: uppercase; }
+    .chart-wrap { position: relative; height: 120px; }
+
+    /* ── PODS ── */
+    .pods-grid { display: flex; flex-wrap: wrap; gap: 6px; padding-top: 2px; }
+    .pod {
+      width: 28px; height: 28px; border-radius: 4px;
+      display: flex; align-items: center; justify-content: center;
+      font-size: 8px; font-weight: 800; cursor: default;
+      transition: transform 0.15s; font-family: monospace; letter-spacing: 0;
+    }
+    .pod:hover { transform: scale(1.3); }
+    .pod-run  { background: #14532d; color: #86efac; }
+    .pod-pend { background: #78350f; color: #fcd34d; }
+    .pod-err  { background: #7f1d1d; color: #fca5a5; }
+
+    /* ── LOGS SECTION ── */
+    .logs-section {
+      background: #111827; border-radius: 6px;
+      border: 1px solid #1e293b;
+      display: flex; flex-direction: column; gap: 10px;
+      padding: 14px 16px;
+    }
+
+    .logs-hd { display: flex; align-items: center; gap: 10px; }
+    .logs-hd h2 { font-size: 11px; font-weight: 700; letter-spacing: 0.1em; text-transform: uppercase; color: #6b7280; }
+    .log-count { font-size: 10px; color: #374151; margin-left: 2px; }
+
+    .log-filter { display: flex; gap: 4px; margin-left: auto; }
+    .lbtn {
+      padding: 3px 10px; border-radius: 4px; font-size: 10px; letter-spacing: 0.06em;
+      border: 1px solid #1e293b; background: transparent;
+      color: #4b5563; cursor: pointer; transition: all 0.15s; font-family: monospace; font-weight: 700; text-transform: uppercase;
+    }
+    .lbtn.active { background: #0f172a; color: #60a5fa; border-color: #2563eb44; }
+    .lbtn:hover:not(.active) { background: #1e293b; color: #94a3b8; }
+
+    .logbox {
+      background: #080e1a; border-radius: 4px;
+      padding: 10px 12px; overflow-y: auto;
+      font-family: 'Courier New', monospace; font-size: 11px;
+      line-height: 1.7; height: 200px;
+      border: 1px solid #0f172a;
+    }
+    .log-line { display: flex; gap: 10px; }
+    .log-line:hover { background: #0f172a; margin: 0 -4px; padding: 0 4px; border-radius: 2px; }
+    .log-time { color: #374151; min-width: 60px; flex-shrink: 0; }
+    .log-lvl  { min-width: 38px; font-weight: 800; flex-shrink: 0; }
+    .lvl-info { color: #2563eb; }
+    .lvl-warn { color: #d97706; }
+    .lvl-err  { color: #dc2626; }
+    .log-msg  { color: #64748b; }
+
+    .logs-footer {
+      display: flex; align-items: center; justify-content: space-between;
+    }
+
+    .dl-btn {
+      padding: 6px 14px;
+      border: 1px solid #1e293b; border-radius: 4px;
+      background: transparent; color: #4b5563;
+      font-size: 10px; cursor: pointer; transition: all 0.15s;
+      font-family: monospace; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase;
+    }
+    .dl-btn:hover { background: #1e293b; color: #94a3b8; }
+
+    /* ── BOTTOM BAR ── */
+    .bottombar {
+      display: flex; justify-content: space-between;
+      font-size: 11px; color: #374151; font-family: monospace;
+      padding-top: 4px;
+    }
+    .bottombar strong { color: #4b5563; }
+
+    /* ── RESPONSIVE ── */
+    @media (max-width: 1100px) {
+      .charts { grid-template-columns: repeat(2, 1fr); }
+    }
+    @media (max-width: 700px) {
+      .metrics { grid-template-columns: repeat(2, 1fr); }
+      .charts  { grid-template-columns: 1fr; }
+    }
+  </style>
+</head>
+<body>
+
+<div class="dash">
+
+  <!-- TOPBAR -->
+  <div class="topbar">
+    <h1>SERVER MONITOR</h1>
+    <span class="badge badge-ok" id="statusBadge">
+      <span class="dot dot-ok" id="statusDot"></span>
+      <span id="statusTxt">Healthy</span>
+    </span>
+    <span class="last-update" id="lastUpdate">—</span>
+  </div>
+
+  <!-- METRIC CARDS -->
+  <div class="metrics">
+    <div class="mcard">
+      <div class="label">CPU</div>
+      <div class="val" id="m-cpu">0%</div>
+      <div class="sub">4 cores</div>
+      <div class="bar"><div class="bar-fill" id="m-cpu-bar" style="width:0%;background:#3b82f6"></div></div>
+    </div>
+    <div class="mcard">
+      <div class="label">Memory</div>
+      <div class="val" id="m-mem">0 GB</div>
+      <div class="sub" id="m-mem-sub">of 16 GB</div>
+      <div class="bar"><div class="bar-fill" id="m-mem-bar" style="width:0%;background:#10b981"></div></div>
+    </div>
+    <div class="mcard">
+      <div class="label">Network</div>
+      <div class="val" id="m-net">0 / 0</div>
+      <div class="sub">MB/s in / out</div>
+    </div>
+    <div class="mcard">
+      <div class="label">Pods</div>
+      <div class="val" id="m-pods">0</div>
+      <div class="sub" id="m-pods-sub">running / 8 total</div>
+    </div>
+  </div>
+
+  <!-- CHARTS -->
+  <div class="charts">
+    <div class="chart-card">
+      <h3>CPU Usage (%)</h3>
+      <div class="chart-wrap">
+        <canvas id="cpuChart"></canvas>
+      </div>
+    </div>
+    <div class="chart-card">
+      <h3>Memory Usage (%)</h3>
+      <div class="chart-wrap">
+        <canvas id="memChart"></canvas>
+      </div>
+    </div>
+    <div class="chart-card">
+      <h3>Network I/O (MB/s)</h3>
+      <div class="chart-wrap">
+        <canvas id="netChart"></canvas>
+      </div>
+    </div>
+    <div class="chart-card">
+      <h3>Pod Health</h3>
+      <div class="pods-grid" id="podsGrid"></div>
+    </div>
+  </div>
+
+  <!-- LOGS BELOW CHARTS -->
+  <div class="logs-section">
+    <div class="logs-hd">
+      <h2>Logs</h2>
+      <span class="log-count" id="logCount"></span>
+      <div class="log-filter">
+        <button class="lbtn active" onclick="setFilter('all',this)">All</button>
+        <button class="lbtn" onclick="setFilter('info',this)">Info</button>
+        <button class="lbtn" onclick="setFilter('warn',this)">Warn</button>
+        <button class="lbtn" onclick="setFilter('error',this)">Err</button>
+      </div>
+    </div>
+    <div class="logbox" id="logbox"></div>
+    <div class="logs-footer">
+      <span style="font-size:10px;color:#374151;font-family:monospace;">AUTO-REFRESH 3s · REGION: ap-south-1 · UPTIME: <strong id="uptimeTxt" style="color:#4b5563">0h 0m</strong></span>
+      <button class="dl-btn" onclick="downloadLogs()">↓ Download Logs</button>
+    </div>
+  </div>
+
+</div>
+
+<script>
+  const POINTS = 25, TOTAL_PODS = 8, REFRESH_MS = 3000;
+  let allLogs = [], logFilter = 'all', uptimeS = 0;
+  let prevCpu = 30, prevMem = 45, prevIn = 10, prevOut = 6;
+
+  function mkChart(id, datasets, maxY) {
+    const ctx = document.getElementById(id).getContext('2d');
+    return new Chart(ctx, {
+      type: 'line',
+      data: { labels: Array(POINTS).fill(''), datasets },
+      options: {
+        responsive: true, maintainAspectRatio: false,
+        animation: { duration: 400 },
+        plugins: {
+          legend: { display: datasets.length > 1, labels: { color: '#4b5563', font: { size: 10, family: 'monospace' }, boxWidth: 10 } },
+          tooltip: { mode: 'index', intersect: false }
+        },
+        scales: {
+          x: { display: false },
+          y: {
+            min: 0, max: maxY,
+            grid: { color: 'rgba(148,163,184,0.05)' },
+            ticks: { color: '#374151', font: { size: 9, family: 'monospace' } }
+          }
+        }
+      }
+    });
+  }
+
+  const cpuChart = mkChart('cpuChart', [{
+    label: 'CPU %', data: [], borderColor: '#3b82f6',
+    backgroundColor: 'rgba(59,130,246,0.08)', fill: true, tension: 0.4, pointRadius: 0, borderWidth: 1.5
+  }], 100);
+
+  const memChart = mkChart('memChart', [{
+    label: 'Mem %', data: [], borderColor: '#10b981',
+    backgroundColor: 'rgba(16,185,129,0.08)', fill: true, tension: 0.4, pointRadius: 0, borderWidth: 1.5
+  }], 100);
+
+  const netChart = mkChart('netChart', [
+    { label: 'In',  data: [], borderColor: '#818cf8', backgroundColor: 'rgba(129,140,248,0.05)', fill: true, tension: 0.4, pointRadius: 0, borderWidth: 1.5 },
+    { label: 'Out', data: [], borderColor: '#f97316', backgroundColor: 'rgba(249,115,22,0.05)',  fill: true, tension: 0.4, pointRadius: 0, borderWidth: 1.5, borderDash: [4,3] }
+  ], 50);
+
+  function pushChart(chart, ...vals) {
+    vals.forEach((v, i) => {
+      chart.data.datasets[i].data.push(v);
+      if (chart.data.datasets[i].data.length > POINTS) chart.data.datasets[i].data.shift();
+    });
+    chart.update('none');
+  }
+
+  const LOG_POOL = [
+    { l:'info',  m:'Health check passed on all endpoints' },
+    { l:'info',  m:'Autoscaler evaluated cluster — no action needed' },
+    { l:'info',  m:'Pod api-worker-3 scheduled on node-2' },
+    { l:'info',  m:'Config sync completed successfully' },
+    { l:'info',  m:'TLS certificate renewed — valid 90 days' },
+    { l:'info',  m:'Horizontal pod autoscaler scaled up to 6 replicas' },
+    { l:'warn',  m:'Memory usage approaching 80% threshold' },
+    { l:'warn',  m:'Slow query detected: 342ms on /api/metrics' },
+    { l:'warn',  m:'Retrying connection to redis — attempt 2/3' },
+    { l:'warn',  m:'CPU spike detected — above 75% for 30s' },
+    { l:'error', m:'Pod crash-loop: db-proxy-1 restarted' },
+    { l:'error', m:'Readiness probe failed on svc/worker' },
+  ];
+
+  function randomLog() {
+    const e = LOG_POOL[Math.floor(Math.random() * LOG_POOL.length)];
+    return { time: new Date().toTimeString().slice(0,8), level: e.l, msg: e.m };
+  }
+
+  function renderLogs() {
+    const box = document.getElementById('logbox');
+    const list = logFilter === 'all' ? allLogs : allLogs.filter(l => l.level === logFilter);
+    document.getElementById('logCount').textContent = `(${list.length})`;
+    box.innerHTML = list.map(l =>
+      `<div class="log-line">
+        <span class="log-time">${l.time}</span>
+        <span class="log-lvl lvl-${l.level === 'error' ? 'err' : l.level}">${l.level.toUpperCase()}</span>
+        <span class="log-msg">${l.msg}</span>
+      </div>`
+    ).join('');
+    box.scrollTop = box.scrollHeight;
+  }
+
+  function setFilter(f, btn) {
+    logFilter = f;
+    document.querySelectorAll('.lbtn').forEach(b => b.classList.remove('active'));
+    btn.classList.add('active');
+    renderLogs();
+  }
+
+  function drift(prev, speed, min, max) {
+    return Math.min(max, Math.max(min, prev + (Math.random() - 0.48) * speed));
+  }
+
+  function barColor(pct) {
+    if (pct > 85) return '#ef4444';
+    if (pct > 65) return '#f59e0b';
+    return '#3b82f6';
+  }
+
+  function updateStatus(cpu, mem) {
+    const badge = document.getElementById('statusBadge');
+    const dot   = document.getElementById('statusDot');
+    const txt   = document.getElementById('statusTxt');
+    if (cpu > 85 || mem > 85) {
+      badge.className = 'badge badge-crit'; dot.className = 'dot dot-crit'; txt.textContent = 'Critical';
+    } else if (cpu > 65 || mem > 65) {
+      badge.className = 'badge badge-warn'; dot.className = 'dot dot-warn'; txt.textContent = 'Warning';
+    } else {
+      badge.className = 'badge badge-ok'; dot.className = 'dot dot-ok'; txt.textContent = 'Healthy';
+    }
+  }
+
+  function updatePods(running) {
+    const grid = document.getElementById('podsGrid');
+    let html = '';
+    for (let i = 0; i < TOTAL_PODS; i++) {
+      let cls, lbl;
+      if (i < running) { cls = 'pod-run'; lbl = 'RUN'; }
+      else if (Math.random() < 0.35) { cls = 'pod-err'; lbl = 'ERR'; }
+      else { cls = 'pod-pend'; lbl = 'PND'; }
+      html += `<div class="pod ${cls}" title="pod-${i+1}: ${lbl}">${i+1}</div>`;
+    }
+    grid.innerHTML = html;
+  }
+
+  function tick() {
+    uptimeS += REFRESH_MS / 1000;
+    const h = Math.floor(uptimeS / 3600), m = Math.floor((uptimeS % 3600) / 60);
+    document.getElementById('uptimeTxt').textContent = `${h}h ${m}m`;
+    document.getElementById('lastUpdate').textContent = 'Updated ' + new Date().toTimeString().slice(0,8);
+
+    prevCpu = drift(prevCpu, 18, 0, 100);
+    prevMem = drift(prevMem, 5,  0, 100);
+    prevIn  = drift(prevIn,  5,  0, 50);
+    prevOut = drift(prevOut, 3,  0, 50);
+
+    const cpu = Math.round(prevCpu);
+    const mem = Math.round(prevMem);
+    const netIn  = Math.round(prevIn  * 10) / 10;
+    const netOut = Math.round(prevOut * 10) / 10;
+    const running = Math.round(TOTAL_PODS * (0.6 + Math.random() * 0.4));
+    const memGB = (prevMem / 100 * 16).toFixed(1);
+
+    pushChart(cpuChart, cpu);
+    pushChart(memChart, mem);
+    pushChart(netChart, netIn, netOut);
+
+    document.getElementById('m-cpu').textContent     = cpu + '%';
+    document.getElementById('m-cpu-bar').style.width = cpu + '%';
+    document.getElementById('m-cpu-bar').style.background = barColor(cpu);
+
+    document.getElementById('m-mem').textContent     = memGB + ' GB';
+    document.getElementById('m-mem-bar').style.width = mem + '%';
+    document.getElementById('m-mem-bar').style.background = mem > 80 ? '#ef4444' : '#10b981';
+
+    document.getElementById('m-net').textContent      = netIn + ' / ' + netOut;
+    document.getElementById('m-pods').textContent     = running;
+    document.getElementById('m-pods-sub').textContent = `running / ${TOTAL_PODS} total`;
+
+    updatePods(running);
+    updateStatus(cpu, mem);
+
+    if (Math.random() < 0.7) {
+      allLogs.push(randomLog());
+      if (allLogs.length > 200) allLogs.shift();
+      renderLogs();
+    }
+  }
+
+  function downloadLogs() {
+    const txt = allLogs.map(l => `[${l.time}] ${l.level.toUpperCase()} ${l.msg}`).join('\n');
+    const a = document.createElement('a');
+    a.href = 'data:text/plain,' + encodeURIComponent(txt);
+    a.download = 'server-logs.txt';
+    a.click();
+  }
+
+  tick();
+  setInterval(tick, REFRESH_MS);
+</script>
+
+</body>
+</html>
