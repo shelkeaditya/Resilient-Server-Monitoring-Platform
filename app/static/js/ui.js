@@ -93,7 +93,7 @@
 
   /* ---------- Connection / chrome --------------------------------------- */
   var CONN_TEXT = { connecting: 'Connecting', live: 'Live', stale: 'Stale data', error: 'Disconnected' };
-  var lastSampleAt = null;
+  var ageBase = null, receivedAt = 0;   // age reported by the server + time elapsed locally (immune to clock skew)
 
   function setConn(state, detail) {
     var pill = el('conn-pill');
@@ -127,9 +127,9 @@
 
   /* Keeps "x s ago" honest between polls, so a failing poll becomes visible. */
   function tickAge() {
-    if (lastSampleAt == null) return;
-    var age = Date.now() / 1000 - lastSampleAt;
-    text('last-ago', '(' + F.ago(age) + ')');
+    if (ageBase == null) return;
+    var label = F.ago(ageBase + (performance.now() - receivedAt) / 1000);
+    text('last-ago', label ? '(' + label + ')' : '');
   }
 
   /* ---------- Top bar ---------------------------------------------------- */
@@ -138,7 +138,8 @@
     text('host-name', sys && sys.hostname ? sys.hostname : NA);
     if (sys && sys.hostname) document.title = sys.hostname + ' \u00b7 Server Monitor';
     text('last-updated', F.clock(s.collected_at));
-    lastSampleAt = s.collected_at;
+    ageBase = F.isNum(s.age_seconds) ? Math.max(0, s.age_seconds) : 0;
+    receivedAt = performance.now();
     tickAge();
   }
 
@@ -288,7 +289,8 @@
     var fsRows = dsk && dsk.mounts.length ? dsk.mounts.map(function (m) {
       var lvl = levelByPercent(m.percent);
       return h('tr', null,
-        h('td', { class: 'mono', text: m.mount }),
+        h('td', { class: 'mono' }, m.mount,
+          m.aliases && m.aliases.length ? h('span', { class: 'alias', title: 'Also mounted at ' + m.aliases.join(', '), text: ' +' + m.aliases.length }) : null),
         h('td', { class: 'mono', text: m.device }),
         h('td', { text: m.fstype }),
         h('td', { class: 'num', text: F.bytes(m.used) + ' / ' + F.bytes(m.total) }),

@@ -37,3 +37,18 @@ def test_history_values_come_from_snapshot():
 def test_empty_history_is_valid():
     h = Sampler(interval=1).history()
     assert h["count"] == 0 and all(col == [] for col in h["series"].values())
+
+
+def test_bind_mounts_of_one_device_are_reported_once(monkeypatch):
+    """/tmp and /var/tmp are usually bind mounts of / - they must not appear as duplicate rows."""
+    from collections import namedtuple
+    import psutil
+    Part = namedtuple("Part", "device mountpoint fstype opts")
+    fake = [Part("/dev/vda1", "/", "ext4", ""), Part("/dev/vda1", "/tmp", "ext4", ""),
+            Part("/dev/vda1", "/usr", "ext4", ""), Part("/dev/vdb1", "/home", "ext4", "")]
+    monkeypatch.setattr(psutil, "disk_partitions", lambda all=False: fake)
+    snap = Sampler(interval=1).collect_once()
+    mounts = {m["mount"]: m for m in snap["disks"]["mounts"]}
+    assert set(mounts) == {"/", "/home"}
+    assert mounts["/"]["aliases"] == ["/tmp", "/usr"]
+    assert mounts["/home"]["aliases"] == []

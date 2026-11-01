@@ -9,7 +9,7 @@
   color-scheme: dark;
 
   --bg: #060a13;
-  --panel: rgba(15, 23, 42, 0.62);
+  --panel: rgba(15, 23, 42, 0.78);
   --panel-solid: #0d1525;
   --panel-raised: rgba(30, 41, 66, 0.55);
   --border: rgba(148, 163, 184, 0.13);
@@ -64,12 +64,18 @@ body {
   font-size: 14px;
   line-height: 1.45;
   color: var(--text);
-  background:
-    radial-gradient(1100px 520px at 85% -8%, rgba(59, 130, 246, 0.09), transparent 70%),
-    var(--bg);
-  background-attachment: fixed;
+  background: var(--bg);
   font-variant-numeric: tabular-nums;
   -webkit-font-smoothing: antialiased;
+}
+/* Ambient glow: a fixed layer promoted to the GPU, so scrolling never repaints it. */
+body::before {
+  content: "";
+  position: fixed; inset: 0; z-index: -1;
+  pointer-events: none;
+  background: radial-gradient(1100px 520px at 85% -8%, rgba(59, 130, 246, 0.09), transparent 70%);
+  will-change: transform;
+  transform: translateZ(0);
 }
 h1, h2, h3, h4, p, dl, dd, figure, ul { margin: 0; padding: 0; }
 ul { list-style: none; }
@@ -113,7 +119,8 @@ a:hover { text-decoration: underline; }
 
 /* ---------- 4. Components ---------------------------------------------- */
 
-/* Card (glass panel) */
+/* Card (translucent panel). No backdrop-filter on purpose: blurring dozens of large layers
+   makes scrolling janky on many GPUs; the panels read the same over this flat background. */
 .card {
   position: relative;
   min-width: 0;
@@ -121,13 +128,9 @@ a:hover { text-decoration: underline; }
   background: var(--panel);
   border: 1px solid var(--border);
   border-radius: var(--radius);
-  box-shadow: var(--shadow);
-  -webkit-backdrop-filter: blur(12px);
-  backdrop-filter: blur(12px);
-  transition: border-color 0.25s var(--ease), background-color 0.25s var(--ease);
-}
-@supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
-  .card { background: var(--panel-solid); }
+  box-shadow: 0 1px 0 rgba(255, 255, 255, 0.03) inset, 0 2px 8px rgba(0, 0, 0, 0.22);
+  contain: layout style;           /* updates inside a card never reflow the rest of the page */
+  transition: border-color 0.25s var(--ease);
 }
 @media (hover: hover) { .card:hover { border-color: var(--border-strong); } }
 .card__head { display: flex; align-items: center; gap: 9px; margin-bottom: 14px; color: var(--text-3); }
@@ -228,11 +231,15 @@ a:hover { text-decoration: underline; }
 .table .num { text-align: right; }
 .table .usage { min-width: 150px; }
 .table .empty { padding: 18px 10px; text-align: center; color: var(--text-3); white-space: normal; }
+.alias { margin-left: 2px; color: var(--text-3); font-size: 11px; cursor: help; }
 .cell-usage { display: flex; align-items: center; gap: 10px; }
 .cell-usage .meter { flex: 1; min-width: 70px; }
 .cell-usage__pct { width: 38px; text-align: right; color: var(--text-2); }
 .state-dot { display: inline-flex; align-items: center; gap: 6px; }
 .state-dot::before { content: ""; width: 7px; height: 7px; border-radius: 50%; background: var(--lvl, var(--unknown)); }
+
+/* Tables far below the viewport are not rendered until needed. */
+.table-wrap { content-visibility: auto; contain-intrinsic-size: auto 140px; }
 
 /* ---------- 5. Sections ------------------------------------------------- */
 
@@ -240,10 +247,8 @@ a:hover { text-decoration: underline; }
 .topbar {
   position: sticky; top: 0; z-index: 20;
   padding-top: env(safe-area-inset-top);
-  background: rgba(6, 10, 19, 0.78);
+  background: rgba(6, 10, 19, 0.95);
   border-bottom: 1px solid var(--border);
-  -webkit-backdrop-filter: blur(14px);
-  backdrop-filter: blur(14px);
 }
 .topbar__inner {
   display: flex; align-items: center; flex-wrap: wrap; gap: 8px 18px;
@@ -279,7 +284,7 @@ a:hover { text-decoration: underline; }
 .pill[data-state="live"]       { --lvl: var(--ok);      --lvl-bg: rgba(52, 211, 153, 0.12); }
 .pill[data-state="stale"]      { --lvl: var(--warn);    --lvl-bg: rgba(251, 191, 36, 0.13); }
 .pill[data-state="error"]      { --lvl: var(--crit);    --lvl-bg: rgba(248, 113, 113, 0.14); }
-.pill__dot { position: relative; width: 8px; height: 8px; border-radius: 50%; background: var(--lvl); }
+.pill__dot { position: relative; width: 8px; height: 8px; border-radius: 50%; background: var(--lvl); will-change: transform; }
 .pill[data-state="live"] .pill__dot::after,
 .pill[data-state="connecting"] .pill__dot::after {
   content: ""; position: absolute; inset: 0; border-radius: 50%;
@@ -289,7 +294,7 @@ a:hover { text-decoration: underline; }
 
 /* Auto-refresh indicator (sweep restarts on every new sample) */
 .refresh { display: inline-flex; align-items: center; gap: 8px; font-size: 12px; color: var(--text-3); }
-.refresh__ring { width: 20px; height: 20px; transform: rotate(-90deg); }
+.refresh__ring { width: 20px; height: 20px; transform: rotate(-90deg); contain: strict; }
 .refresh__ring circle { fill: none; stroke-width: 2.5; }
 .refresh__track { stroke: rgba(148, 163, 184, 0.2); }
 .refresh__sweep { stroke: var(--accent); stroke-linecap: round; stroke-dasharray: 100; stroke-dashoffset: 100; }

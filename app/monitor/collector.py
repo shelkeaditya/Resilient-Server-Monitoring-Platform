@@ -203,6 +203,20 @@ class Sampler:
                                "total": u.total, "used": u.used, "free": u.free,
                                "percent": u.percent, "inode_percent": inode_pct})
 
+            # /tmp and /var/tmp are often bind mounts of the root filesystem: report each device
+            # once (shortest mount point) and list the others as aliases instead of duplicate rows.
+            by_dev = {}
+            for m in mounts:
+                cur = by_dev.get(m["device"])
+                if cur is None:
+                    m["aliases"] = []
+                    by_dev[m["device"]] = m
+                    continue
+                keep, other = (m, cur) if len(m["mount"]) < len(cur["mount"]) else (cur, m)
+                keep["aliases"] = sorted(set(keep.get("aliases", [])) | set(other.get("aliases", [])) | {other["mount"]})
+                by_dev[m["device"]] = keep
+            mounts = sorted(by_dev.values(), key=lambda m: m["mount"])
+
             counters = psutil.disk_io_counters(perdisk=True) or {}
             names = set(counters)
             devices = []

@@ -81,9 +81,22 @@
       return false;
     }
     var textColor = css('--text-3'), grid = 'rgba(148,163,184,0.09)';
+    Chart.defaults.devicePixelRatio = Math.min(window.devicePixelRatio || 1, 2);
     Chart.defaults.font.family = css('--font');
     Chart.defaults.font.size = 11;
     Chart.defaults.color = textColor;
+
+    // Only charts on screen are redrawn; off-screen ones are marked dirty and drawn when scrolled into view.
+    var observer = typeof IntersectionObserver === 'function'
+      ? new IntersectionObserver(function (entries) {
+          entries.forEach(function (e) {
+            var b = built.filter(function (x) { return x.canvas === e.target; })[0];
+            if (!b) return;
+            b.visible = e.isIntersecting;
+            if (b.visible && b.dirty) { b.dirty = false; b.chart.update('none'); }
+          });
+        }, { rootMargin: '120px' })
+      : null;
 
     DEFS.forEach(function (def) {
       var canvas = document.getElementById(def.id);
@@ -112,7 +125,7 @@
         data: { labels: S.state.labels, datasets: datasets },
         options: {
           responsive: true, maintainAspectRatio: false,
-          animation: { duration: 350, easing: 'easeOutQuart' },
+          animation: { duration: 250, easing: 'easeOutQuart' },
           interaction: { mode: 'index', intersect: false },
           layout: { padding: { top: 4, right: 2 } },
           plugins: {
@@ -130,7 +143,9 @@
           }
         }
       });
-      built.push({ def: def, chart: chart, canvas: canvas, legend: buildLegend(def) });
+      var entry = { def: def, chart: chart, canvas: canvas, legend: buildLegend(def), visible: true, dirty: false };
+      built.push(entry);
+      if (observer) observer.observe(canvas);
     });
     return true;
   }
@@ -157,9 +172,17 @@
         b.chart.options.scales.y.suggestedMax = Math.max(1, F.isNum(cores) ? cores : 1) * 1.25;
       }
       b.canvas.setAttribute('aria-label', b.canvas.getAttribute('aria-label').split(' — ')[0] + ' — latest: ' + parts.join(', '));
-      b.chart.update();
+      if (!b.visible) { b.dirty = true; return; }
+      b.chart.update(scrolling ? 'none' : undefined);
     });
   }
+
+  var scrolling = false, scrollTimer = null;
+  window.addEventListener('scroll', function () {
+    scrolling = true;
+    clearTimeout(scrollTimer);
+    scrollTimer = setTimeout(function () { scrolling = false; }, 200);
+  }, { passive: true });
 
   g.SM.charts = { init: init, update: update, defs: DEFS };
 })(window);
