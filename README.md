@@ -7,7 +7,7 @@
 ![psutil](https://img.shields.io/badge/psutil-7.2-informational)
 ![nginx](https://img.shields.io/badge/Reverse%20proxy-nginx-009639)
 
-![Uploading image.png…]()
+<img width="1898" height="977" alt="image" src="https://github.com/user-attachments/assets/41a18724-325d-4416-8c52-8b03da6ebff2" />
 
 Why it exists: Prometheus plus Grafana is a great stack, but it costs more memory than a small VPS can spare. Server Monitor is one small Python process with no database and no frontend build step.
 
