@@ -1,72 +1,56 @@
+import logging
+import os
+
 from flask import Flask, jsonify, render_template
-import subprocess
-import time
-import threading
 
-app = Flask(__name__)
+from monitor.collector import Sampler
 
-cache = {
-    "data": {},
-    "last_updated": 0
-}
+CSP = ("default-src 'self'; "
+       "style-src 'self' 'unsafe-inline'; "
+       "img-src 'self' data:; "
+       "base-uri 'self'; form-action 'self'; frame-ancestors 'none'")
 
-def run_kubectl(cmd):
-    try:
-        result = subprocess.check_output(cmd, shell=True, stderr=subprocess.DEVNULL)
-        return result.decode("utf-8")
-    except:
-        return "Error"
 
-def update_cache():
-    while True:
-        pods = run_kubectl("kubectl get pods --no-headers")
-        cpu = run_kubectl("kubectl top pods --no-headers")
+def create_app():
+    logging.basicConfig(level=os.environ.get("LOG_LEVEL", "INFO"),
+                        format="%(asctime)s %(levelname)s %(name)s: %(message)s")
+    app = Flask(__name__)
+    sampler = Sampler(interval=float(os.environ.get("MONITOR_INTERVAL", "3")),
+                      history_points=int(os.environ.get("MONITOR_HISTORY", "300")))
+    sampler.start()
+    app.extensions["sampler"] = sampler
 
-        # get first pod for logs
-        pod_name = ""
+    @app.get("/")
+    def index():
+        return render_template("dashboard.html")
 
-        if pods and pods != "Error":
-            lines = [l for l in pods.split("\n") if l.strip()]
-    
-    for line in lines:
-        name = line.split()[0]
-        
-        # skip system / flask pods if needed
-        if "anomaly-app" in name:
-            pod_name = name
-            break
-        # safe logs fetch
-        logs = "No logs available"
+    @app.get("/api/v1/snapshot")
+    def snapshot():
+        return jsonify(sampler.snapshot())
 
-        if pod_name:
-            try:
-                logs = subprocess.check_output(
-                    f"kubectl logs {pod_name} --tail=50",
-                    shell=True,
-                    stderr=subprocess.STDOUT
-                ).decode("utf-8")
-            except subprocess.CalledProcessError as e:
-                logs = e.output.decode("utf-8")
+    @app.get("/api/v1/history")
+    def history():
+        return jsonify(sampler.history())
 
-        cache["data"] = {
-            "pods": pods,
-            "cpu": cpu,
-            "logs": logs
-        }
+    @app.get("/healthz")
+    def healthz():
+        s = sampler.snapshot()
+        ok = s.get("status") == "ok" and not s.get("stale")
+        return jsonify({"ok": ok}), (200 if ok else 503)
 
-        cache["last_updated"] = time.time()
-        time.sleep(3)
+    @app.after_request
+    def headers(resp):
+        resp.headers["X-Content-Type-Options"] = "nosniff"
+        resp.headers["X-Frame-Options"] = "DENY"
+        resp.headers["Referrer-Policy"] = "same-origin"
+        resp.headers["Content-Security-Policy"] = CSP
+        if resp.mimetype == "application/json":
+            resp.headers["Cache-Control"] = "no-store"
+        return resp
 
-# background thread
-threading.Thread(target=update_cache, daemon=True).start()
+    return app
 
-@app.route("/")
-def index():
-    return render_template("dashboard.html")
-
-@app.route("/data")
-def data():
-    return jsonify(cache["data"])
 
 if __name__ == "__main__":
-    app.run(debug=True)
+    create_app().run(host=os.environ.get("MONITOR_HOST", "127.0.0.1"),
+                     port=int(os.environ.get("MONITOR_PORT", "5000")), debug=False)
